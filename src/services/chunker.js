@@ -1,5 +1,3 @@
-// chunker.js - splits document text into overlapping chunks for embedding
-
 const CHUNK_SIZE = 500; // tokens (approx)
 const OVERLAP = 75;
 
@@ -8,32 +6,56 @@ function estimateTokens(text) {
 }
 
 function splitSentences(text) {
-	const raw = text.match(/[^.!?]+[.!?]+[\s]*/g);
+	const raw = text.match(/[^.!?\s][^.!?]*(?:[.!?](?![\d])(?:[\s]|$)+)/g);
 	if (!raw) return [text.trim()];
 	return raw.map((s) => s.trim()).filter((s) => s.length > 0);
 }
 
-// detect section headings and split the document into sections
+function cleanText(text) {
+	return text.replace(/\.{3,}/g, ' ');
+}
+
 function splitSections(text) {
 	const lines = text.split('\n');
 	const sections = [];
 	let heading = 'Introduction';
 	let buffer = [];
 
+	const isHeading = (line, nextLine) => {
+		// 1. MD heading
+		if (/^#{1,4}\s+/.test(line)) return true;
+
+		// 2. Underlined heading
+		if (/^[=-]{3,}$/.test(nextLine) && line.trim().length > 0) return true;
+
+		const trimmed = line.trim();
+		if (trimmed.length === 0 || trimmed.length > 80) return false;
+
+		// 3. Numbered section headings: "5.3 Measure", "1.1 Goal", "MEASURE 1:"
+		if (/^(\d+\.\d+(\.\d+)?)\s+[A-Z]/.test(trimmed)) return true;
+		if (/^(GOVERN|MAP|MEASURE|MANAGE)\s+\d+/.test(trimmed)) return true;
+		if (/^(Table|Figure)\s+\d+:/.test(trimmed)) return true;
+
+		// 4. Large capitalized headings like "PART 1: FOUNDATION" or "APPENDIX A"
+		if (/^(PART|APPENDIX|SECTION)\s+\d+/i.test(trimmed)) return true;
+
+		return false;
+	};
+
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
 		const nextLine = lines[i + 1] || '';
 
-		const isMdHeading = /^#{1,4}\s+/.test(line);
-		const isUnderline = /^[=-]{3,}$/.test(nextLine) && line.trim().length > 0;
+		const isMd = /^#{1,4}\s+/.test(line);
+		const isUnder = /^[=-]{3,}$/.test(nextLine) && line.trim().length > 0;
 
-		if (isMdHeading || isUnderline) {
+		if (isHeading(line, nextLine)) {
 			if (buffer.length > 0) {
 				sections.push({ heading, text: buffer.join('\n').trim() });
 				buffer = [];
 			}
 			heading = line.replace(/^#+\s*/, '').trim();
-			if (isUnderline) i++;
+			if (isUnder) i++;
 			continue;
 		}
 
@@ -95,7 +117,8 @@ export function chunkDocument(text, filename, options = {}) {
 	const maxTokens = options.chunkSize || CHUNK_SIZE;
 	const overlapTokens = options.overlap || OVERLAP;
 
-	const sections = splitSections(text);
+	const cleaned = cleanText(text);
+	const sections = splitSections(cleaned);
 	const results = [];
 	let idx = 0;
 	let charOffset = 0;
@@ -104,7 +127,7 @@ export function chunkDocument(text, filename, options = {}) {
 		const chunks = chunkSection(section.text, maxTokens, overlapTokens);
 
 		for (const chunk of chunks) {
-			const charStart = text.indexOf(chunk.substring(0, 50), charOffset);
+			const charStart = cleaned.indexOf(chunk.substring(0, 50), charOffset);
 
 			results.push({
 				content: chunk,
