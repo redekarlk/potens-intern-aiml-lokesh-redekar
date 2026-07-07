@@ -19,6 +19,7 @@ export async function ingestDocument(filepath) {
 	}
 
 	let text = '';
+	let pagePositions = [];
 	if (filename.toLowerCase().endsWith('.pdf')) {
 		const buffer = fs.readFileSync(filepath);
 		const parser = new pdf.PDFParse({ data: buffer });
@@ -28,10 +29,25 @@ export async function ingestDocument(filepath) {
 		text = fs.readFileSync(filepath, 'utf-8');
 	}
 
+	// Extract page positions and map index boundaries
+	const pageRegex = /--\s*(\d+)\s*of\s*\d+\s*--/g;
+	let match;
+	while ((match = pageRegex.exec(text)) !== null) {
+		pagePositions.push({
+			page: parseInt(match[1], 10),
+			rawIndex: match.index
+		});
+	}
+
+	// Strip markers and collapse excess lines preserving character offsets
+	text = text
+		.replace(/--\s*\d+\s*of\s*\d+\s*--/g, (m) => ' '.repeat(m.length))
+		.replace(/\n{3,}/g, (m) => '\n\n' + ' '.repeat(m.length - 2));
+
 	console.log(`Processing ${filename} (${text.length} chars)`);
 
-	// chunk the document
-	const chunks = chunkDocument(text, filename);
+	// chunk the document passing pagePositions
+	const chunks = chunkDocument(text, filename, { pagePositions });
 	console.log(`  ${chunks.length} chunks created`);
 
 	// embed all chunks

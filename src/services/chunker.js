@@ -116,6 +116,7 @@ function chunkSection(sectionText, maxTokens, overlapTokens) {
 export function chunkDocument(text, filename, options = {}) {
 	const maxTokens = options.chunkSize || CHUNK_SIZE;
 	const overlapTokens = options.overlap || OVERLAP;
+	const pagePositions = options.pagePositions || [];
 
 	const cleaned = cleanText(text);
 	const sections = splitSections(cleaned);
@@ -129,16 +130,38 @@ export function chunkDocument(text, filename, options = {}) {
 		for (const chunk of chunks) {
 			const charStart = cleaned.indexOf(chunk.substring(0, 50), charOffset);
 
+			// Determine page number based on charStart
+			let pageNum = null;
+			if (pagePositions.length > 0) {
+				pageNum = pagePositions[0].page;
+				for (const pos of pagePositions) {
+					if (pos.rawIndex <= charStart) {
+						pageNum = pos.page;
+					} else {
+						break;
+					}
+				}
+			}
+
+			// Fall back to page number if section heading is 'Introduction' or generic
+			let sectionRef = section.heading;
+			if ((sectionRef === 'Introduction' || !sectionRef) && pageNum !== null) {
+				sectionRef = `p. ${pageNum}`;
+			}
+
+			const prependedContent = `${sectionRef}\n\n${chunk}`;
+
 			results.push({
-				content: chunk,
-				section_ref: section.heading,
+				content: prependedContent,
+				section_ref: sectionRef,
 				chunk_index: idx,
-				token_count: estimateTokens(chunk),
+				token_count: estimateTokens(prependedContent),
 				metadata: {
 					filename,
-					section_heading: section.heading,
+					section_heading: sectionRef,
 					char_start: Math.max(charStart, 0),
 					char_end: charStart >= 0 ? charStart + chunk.length : charOffset + chunk.length,
+					page: pageNum
 				},
 			});
 
