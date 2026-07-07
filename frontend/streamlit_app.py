@@ -27,11 +27,17 @@ def get_documents():
 
 docs = get_documents()
 
-# Create tabs
-tab1, tab2, tab3 = st.tabs(["Ask Questions", "Contradiction Analyzer", "Document Library"])
+# Create navigation selection
+selected_tab = st.radio(
+    "Navigation Selector",
+    ["Ask Questions", "Contradiction Analyzer", "Document Library"],
+    horizontal=True,
+    label_visibility="collapsed"
+)
+st.markdown("---")
 
 # Tab 1: Ask Questions
-with tab1:
+if selected_tab == "Ask Questions":
     st.subheader("Grounded Question Answering")
     st.markdown("Ask any technical question. The system will retrieve relevant context, enforce grounding constraints, and translate responses to your language automatically.")
 
@@ -88,7 +94,7 @@ with tab1:
                     st.error(f"Request failed: {str(e)}")
 
 # Tab 2: Contradiction Analyzer
-with tab2:
+elif selected_tab == "Contradiction Analyzer":
     st.subheader("Factual Contradiction Detector")
     st.markdown("Select two documents to scan for conflicting claims or inconsistent facts.")
 
@@ -155,7 +161,7 @@ with tab2:
                         st.error(f"Request failed: {str(e)}")
 
 # Tab 3: Document Library
-with tab3:
+elif selected_tab == "Document Library":
     st.subheader("Ingested Documents Library")
     
     col1, col2 = st.columns([4, 1])
