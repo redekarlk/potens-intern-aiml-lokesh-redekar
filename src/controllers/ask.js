@@ -6,6 +6,7 @@ import { generateAnswer, assessConfidence } from '../services/llm.js';
 import { processQueryLanguage, translateAnswer } from '../services/translate.js';
 
 export async function askQuestion(req, res) {
+	const tStart = Date.now();
 	try {
 		const { question } = req.body;
 
@@ -13,27 +14,45 @@ export async function askQuestion(req, res) {
 			return res.status(400).json({ error: 'question is required' });
 		}
 
+		const tLangStart = Date.now();
 		const { detectedLang, englishQuery } = await processQueryLanguage(question);
+		const tLangTime = Date.now() - tLangStart;
+
+		const tEmbedStart = Date.now();
 		const queryEmbedding = await embedText(englishQuery);
-		const chunks = await retrieveChunks(queryEmbedding);
+		const tEmbedTime = Date.now() - tEmbedStart;
+
+		const tRetrieveStart = Date.now();
+		// Pass englishQuery for Hybrid Search
+		let chunks = await retrieveChunks(queryEmbedding, { textQuery: englishQuery });
+		const tRetrieveTime = Date.now() - tRetrieveStart;
 
 		if (chunks.length === 0) {
 			const notCovered = 'The provided documents do not cover this topic.';
 			const translated = await translateAnswer(notCovered, detectedLang);
 
+			console.log(`[Ask Question] Response: Out of domain. Total Time: ${Date.now() - tStart}ms (Lang: ${tLangTime}ms, Embed: ${tEmbedTime}ms, Retrieve: ${tRetrieveTime}ms)`);
 			return res.json({
 				answer: translated,
 				language: detectedLang,
 				citations: [],
-				confidence: 0,
+				confidence: null,
 				covered: false,
 			});
 		}
 
-		const result = await generateAnswer(englishQuery, chunks);
-		const finalAnswer = await translateAnswer(result.answer, detectedLang);
-
+		// chunks from retrieval are already filtered by RELEVANCE_THRESHOLD \u2014
+		// log what we have and proceed directly to generation.
 		const maxSimilarity = Math.max(...chunks.map((c) => c.similarity_score));
+		console.log(`[Ask Question] ${chunks.length} chunk(s) passed relevance filter (max similarity: ${maxSimilarity.toFixed(4)})`);
+
+		const tLlmStart = Date.now();
+		const result = await generateAnswer(englishQuery, chunks);
+		const tLlmTime = Date.now() - tLlmStart;
+
+		const tTransStart = Date.now();
+		const finalAnswer = await translateAnswer(result.answer, detectedLang);
+		const tTransTime = Date.now() - tTransStart;
 
 		// Use model-generated confidence if present, otherwise calculate it
 		let llmConfidence = result.confidence;
@@ -41,7 +60,12 @@ export async function askQuestion(req, res) {
 			llmConfidence = await assessConfidence(englishQuery, result.answer, chunks);
 		}
 
-		const confidence = parseFloat((0.6 * maxSimilarity + 0.4 * llmConfidence).toFixed(2));
+		const confidence = result.covered
+			? parseFloat((0.6 * maxSimilarity + 0.4 * llmConfidence).toFixed(2))
+			: null;
+
+		const totalTime = Date.now() - tStart;
+		console.log(`[Ask Question] Success. Total Time: ${totalTime}ms (Lang: ${tLangTime}ms, Embed: ${tEmbedTime}ms, Retrieve: ${tRetrieveTime}ms, LLM: ${tLlmTime}ms, Trans: ${tTransTime}ms)`);
 
 		res.json({
 			answer: finalAnswer,
