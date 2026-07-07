@@ -6,7 +6,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+const model = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
 
 const BATCH_SIZE = 10;
 const BATCH_DELAY = 500; // ms between batches for rate limiting
