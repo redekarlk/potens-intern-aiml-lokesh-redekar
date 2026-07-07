@@ -24,3 +24,8 @@ CREATE INDEX IF NOT EXISTS idx_chunks_document_chunk
 
 CREATE INDEX IF NOT EXISTS idx_chunks_document_id
   ON chunks (document_id);
+
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS content_tsv tsvector
+  GENERATED ALWAYS AS (to_tsvector('english', content)) STORED;
+
+CREATE INDEX IF NOT EXISTS idx_chunks_content_tsv ON chunks USING gin(content_tsv);
