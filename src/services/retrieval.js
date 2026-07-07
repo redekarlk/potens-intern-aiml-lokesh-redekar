@@ -6,6 +6,7 @@ import pool from '../config/db.js';
 dotenv.config();
 
 const SIMILARITY_THRESHOLD = parseFloat(process.env.SIMILARITY_THRESHOLD || '0.45');
+const RELEVANCE_THRESHOLD = parseFloat(process.env.RELEVANCE_THRESHOLD || '0.60');
 const TOP_K = parseInt(process.env.TOP_K || '5', 10);
 
 function cosineSimilarity(a, b) {
@@ -27,18 +28,30 @@ function cosineSimilarity(a, b) {
 export async function retrieveChunks(queryEmbedding, options = {}) {
 	const topK = options.topK || TOP_K;
 	const docIds = options.docIds || null;
+	const textQuery = options.textQuery || null;
 
 	let query = `
 		SELECT c.id AS chunk_id, c.document_id, c.content, c.section_ref,
 		       c.chunk_index, c.token_count, c.metadata, c.embedding,
 		       d.filename
-		FROM chunks c
-		JOIN documents d ON c.document_id = d.id
 	`;
 	const params = [];
 
+	if (textQuery) {
+		query += `, ts_rank_cd(c.content_tsv, plainto_tsquery('english', $1)) AS text_rank`;
+		params.push(textQuery);
+	} else {
+		query += `, 0 AS text_rank`;
+	}
+
+	query += `
+		FROM chunks c
+		JOIN documents d ON c.document_id = d.id
+	`;
+
 	if (docIds && docIds.length > 0) {
-		query += ` WHERE c.document_id = ANY($1)`;
+		const paramIndex = params.length + 1;
+		query += ` WHERE c.document_id = ANY($${paramIndex})`;
 		params.push(docIds);
 	}
 
@@ -51,6 +64,15 @@ export async function retrieveChunks(queryEmbedding, options = {}) {
 				? JSON.parse(row.embedding)
 				: row.embedding;
 
+			const simScore = cosineSimilarity(queryEmbedding, emb);
+			const textRankVal = parseFloat(row.text_rank || '0');
+			
+			// Normalize textRankVal (ts_rank_cd is usually between 0.0 and 1.0 but clamp to 1.0 to be safe)
+			const normalizedTextRank = Math.min(1.0, textRankVal);
+
+			// Hybrid score combination: 70% semantic, 30% keyword match
+			const hybridScore = 0.7 * simScore + 0.3 * normalizedTextRank;
+
 			return {
 				chunk_id: row.chunk_id,
 				document_id: row.document_id,
@@ -60,14 +82,22 @@ export async function retrieveChunks(queryEmbedding, options = {}) {
 				chunk_index: row.chunk_index,
 				token_count: row.token_count,
 				metadata: row.metadata,
-				similarity_score: cosineSimilarity(queryEmbedding, emb),
+				similarity_score: simScore,
+				text_rank: textRankVal,
+				hybrid_score: hybridScore,
 			};
 		});
 
-	return scored
+	const aboveThreshold = scored
 		.filter((s) => s.similarity_score >= SIMILARITY_THRESHOLD)
-		.sort((a, b) => b.similarity_score - a.similarity_score)
+		.sort((a, b) => b.hybrid_score - a.hybrid_score)
 		.slice(0, topK);
+
+	// Apply per-chunk relevance filter — drop weak chunks before they reach the LLM.
+	// Fall back to all above-threshold chunks if none clear the higher bar.
+	const relevant = aboveThreshold.filter((s) => s.similarity_score >= RELEVANCE_THRESHOLD);
+	console.log(`[Retrieval] top-${topK} candidates: ${aboveThreshold.length} above similarity gate, ${relevant.length} above relevance threshold (${RELEVANCE_THRESHOLD})`);
+	return relevant.length > 0 ? relevant : aboveThreshold;
 }
 
 // get all chunks for specific documents (used by /contradict)
