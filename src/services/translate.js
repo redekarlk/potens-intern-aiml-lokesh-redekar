@@ -5,11 +5,17 @@ dotenv.config();
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({
-	model: 'gemini-2.0-flash',
+	model: 'gemini-flash-latest',
 	generationConfig: { temperature: 0.1, maxOutputTokens: 256 },
 });
 
 export async function detectLanguage(text) {
+	// simple fast heuristic for English: only ASCII standard characters (32 to 126 range)
+	const isPureAscii = /^[\u0000-\u007F]*$/.test(text);
+	if (isPureAscii) {
+		return 'en';
+	}
+
 	const prompt = `What language is this text? Reply with ONLY the ISO 639-1 code (e.g. "en", "es", "hi"). No explanation.\n\nText: "${text}"`;
 
 	try {
@@ -26,7 +32,7 @@ export async function translateText(text, from, to) {
 	if (from === to) return text;
 
 	const translationModel = genAI.getGenerativeModel({
-		model: 'gemini-2.0-flash',
+		model: 'gemini-flash-latest',
 		generationConfig: { temperature: 0.2, maxOutputTokens: 4096 },
 	});
 
