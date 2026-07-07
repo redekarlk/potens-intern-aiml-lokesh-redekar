@@ -1,0 +1,107 @@
+[
+  {
+    "id": 1,
+    "question": "What is the AI Risk Management Framework (AI RMF 1.0)?",
+    "expected_sources": ["nist_ai_100_1.pdf"],
+    "expected_sections": ["Introduction"],
+    "type": "covered"
+  },
+  {
+    "id": 2,
+    "question": "What does the GOVERN function in the AI RMF involve?",
+    "expected_sources": ["nist_ai_100_1.pdf"],
+    "expected_sections": ["5.1 Govern", "GOVERN 1", "GOVERN 2"],
+    "type": "covered"
+  },
+  {
+    "id": 3,
+    "question": "Explain the MAP and MANAGE functions of the NIST AI RMF.",
+    "expected_sources": ["nist_ai_100_1.pdf"],
+    "expected_sections": ["5.2 Map", "5.4 Manage"],
+    "type": "covered"
+  },
+  {
+    "id": 4,
+    "question": "What is the MEASURE function in the AI RMF and what does it evaluate?",
+    "expected_sources": ["nist_ai_100_1.pdf"],
+    "expected_sections": ["5.3 Measure"],
+    "type": "covered"
+  },
+  {
+    "id": 5,
+    "question": "What is the goal of the NIST AI 600-1 publication?",
+    "expected_sources": ["nist_ai_600_1.pdf"],
+    "expected_sections": ["Introduction"],
+    "type": "covered"
+  },
+  {
+    "id": 6,
+    "question": "How does NIST AI 600-1 address generative AI risks and trustworthy AI?",
+    "expected_sources": ["nist_ai_600_1.pdf"],
+    "expected_sections": ["Introduction", "Risks"],
+    "type": "covered"
+  },
+  {
+    "id": 7,
+    "question": "What are the OECD AI Principles and which values do they promote?",
+    "expected_sources": ["oecd_principles_overview.pdf", "oecd_recommendation.pdf"],
+    "expected_sections": ["Introduction"],
+    "type": "covered"
+  },
+  {
+    "id": 8,
+    "question": "What are the key themes in the OECD AI Principles overview report?",
+    "expected_sources": ["oecd_principles_overview.pdf"],
+    "expected_sections": ["Introduction"],
+    "type": "covered"
+  },
+  {
+    "id": 9,
+    "question": "What does the OECD Recommendation on AI say about accountability and transparency?",
+    "expected_sources": ["oecd_recommendation.pdf"],
+    "expected_sections": ["Introduction"],
+    "type": "covered"
+  },
+  {
+    "id": 10,
+    "question": "Detail the state of implementation of the OECD AI principles across member countries.",
+    "expected_sources": ["oecd_implementation_state.pdf"],
+    "expected_sections": ["Introduction"],
+    "type": "covered"
+  },
+  {
+    "id": 11,
+    "question": "What policy gaps have been identified in the OECD implementation state report?",
+    "expected_sources": ["oecd_implementation_state.pdf"],
+    "expected_sections": ["Introduction"],
+    "type": "covered"
+  },
+  {
+    "id": 12,
+    "question": "¿Cuáles son las cuatro funciones del marco AI RMF de NIST?",
+    "expected_sources": ["nist_ai_100_1.pdf"],
+    "expected_sections": ["Introduction"],
+    "type": "multilingual"
+  },
+  {
+    "id": 13,
+    "question": "¿Qué principios establece la OCDE para la inteligencia artificial responsable?",
+    "expected_sources": ["oecd_recommendation.pdf", "oecd_principles_overview.pdf"],
+    "expected_sections": ["Introduction"],
+    "type": "multilingual"
+  },
+  {
+    "id": 14,
+    "question": "How do you calculate the photosynthesis rate in green plants?",
+    "expected_sources": [],
+    "expected_sections": [],
+    "type": "uncovered"
+  },
+  {
+    "id": 15,
+    "question": "What is the boiling point of nitrogen at sea level?",
+    "expected_sources": [],
+    "expected_sections": [],
+    "type": "uncovered"
+  }
+]
