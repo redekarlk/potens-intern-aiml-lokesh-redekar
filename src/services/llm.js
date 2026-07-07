@@ -317,8 +317,23 @@ function parseAnswer(text, chunks, query = '') {
 			confidence: rawConfidence,
 		};
 	} catch {
+		console.warn('[LLM Service] Answer JSON parsing failed (possibly truncated), attempting regex extraction...');
+		let answerStr = '';
+		const answerMatch = cleaned.match(/"answer"\s*:\s*"([\s\S]*?)(?="|$)/);
+		if (answerMatch) {
+			answerStr = answerMatch[1]
+				.replace(/\\"/g, '"')
+				.replace(/\\n/g, '\n')
+				.trim();
+			if (answerStr.endsWith('\\')) {
+				answerStr = answerStr.slice(0, -1);
+			}
+		} else {
+			answerStr = text; // Fallback to raw text
+		}
+
 		return {
-			answer: sanitizeInlineCitations(text, chunks.length),
+			answer: sanitizeInlineCitations(answerStr, chunks.length),
 			citations: chunks.map((c) => ({
 				source_file: c.filename,
 				section_ref: c.section_ref,
@@ -341,6 +356,32 @@ function parseContradiction(text) {
 			conflicts: parsed.conflicts || [],
 		};
 	} catch {
-		return { has_conflict: false, reasoning: text, conflicts: [] };
+		console.warn('[LLM Service] Contradiction JSON parsing failed (possibly truncated), attempting regex extraction...');
+		
+		let hasConflict = false;
+		const conflictMatch = cleaned.match(/"has_conflict"\s*:\s*(true|false)/i);
+		if (conflictMatch) {
+			hasConflict = conflictMatch[1].toLowerCase() === 'true';
+		}
+
+		let reasoning = '';
+		const reasoningMatch = cleaned.match(/"reasoning"\s*:\s*"([\s\S]*?)(?="|$)/);
+		if (reasoningMatch) {
+			reasoning = reasoningMatch[1]
+				.replace(/\\"/g, '"')
+				.replace(/\\n/g, '\n')
+				.trim();
+			if (reasoning.endsWith('\\')) {
+				reasoning = reasoning.slice(0, -1);
+			}
+		} else {
+			reasoning = cleaned;
+		}
+
+		return {
+			has_conflict: hasConflict,
+			reasoning: reasoning,
+			conflicts: [],
+		};
 	}
 }
