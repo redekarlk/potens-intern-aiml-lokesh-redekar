@@ -26,45 +26,66 @@ async function callWithRetry(fn, retries = 5, delay = 2000) {
 
 // generate an answer grounded in the retrieved chunks
 export async function generateAnswer(query, chunks) {
-	const context = chunks
-		.map((c, i) => `[Chunk ${i + 1}] Source: ${c.filename} | Section: ${c.section_ref}\n${c.content}`)
+	// Number chunks AFTER filtering \u2014 these are the exact [1]..[N] the LLM must use
+	const numberedContext = chunks
+		.map((c, i) => `[${i + 1}] Source: ${c.filename} | Section: ${c.section_ref} | Relevance: ${(c.similarity_score * 100).toFixed(0)}%\n${c.content}`)
 		.join('\n\n---\n\n');
 
-	const systemPrompt = `You are a document Q&A assistant. Answer ONLY using the provided context chunks.
+	const n = chunks.length;
 
-Rules:
-1. Use ONLY information from the context. No outside knowledge.
-2. Cite every claim by referencing its chunk number in square brackets (e.g. [1] for Chunk 1, [2] for Chunk 2).
-3. If the context doesn't cover the question, say: "The provided documents do not cover this topic."
-4. Don't speculate or add info not in the chunks.
-5. If only partial info is available, answer what you can and note what's missing.
+	const systemPrompt = `You are a strict document Q&A assistant. You answer ONLY using the numbered excerpts provided by the user.
 
-Respond in JSON:
-{
-  "answer": "your answer referencing [1], [2], etc.",
-  "citations": [1, 2], // array of chunk numbers used (1-indexed integers)
-  "covered": true/false,
-  "confidence": 0.XX
-}`;
+HARD RULES — follow every one without exception:
+1. Do NOT use any outside knowledge, even if you recognise the topic. If the excerpts don't fully answer the question, say so explicitly rather than filling gaps from your training data.
+2. Every factual claim in your answer MUST be traceable to a specific excerpt. Cite it with [N] inline.
+3. Only cite numbers from [1] to [${n}]. There are exactly ${n} excerpt(s). Do not invent or skip numbers.
+4. If none of the excerpts address the question, return covered: false and answer: "The provided documents do not cover this topic."
+5. If only partial information is available, answer what the excerpts support and note what is missing.
+6. Rate your confidence in the answer's groundedness between 0.0 (completely ungrounded/refusal) and 1.0 (completely grounded in excerpts).
+
+Respond in JSON matching the specified schema.`;
+
+	const userContent = `Excerpts:\n\n${numberedContext}\n\nQuestion: ${query}`;
 
 	const modelName = process.env.AI_TEXT_MODEL || 'gemini-2.5-flash';
 
 	const result = await callWithRetry(() =>
 		getAiClient().models.generateContent({
 			model: modelName,
-			contents: `Context:\n\n${context}\n\nQuestion: ${query}`,
+			contents: userContent,
 			config: {
 				systemInstruction: systemPrompt,
 				temperature: config.temperature,
 				topP: config.topP,
 				maxOutputTokens: config.maxOutputTokens,
 				responseMimeType: 'application/json',
+				responseSchema: {
+					type: 'object',
+					properties: {
+						answer: { type: 'string' },
+						citations: {
+							type: 'array',
+							items: { type: 'integer' }
+						},
+						covered: { type: 'boolean' },
+						confidence: { 
+							type: 'number',
+							description: 'Groundedness confidence score between 0.0 (not grounded) and 1.0 (perfectly grounded)'
+						}
+					},
+					required: ['answer', 'citations', 'covered', 'confidence']
+				}
 			},
 		})
 	);
+
+	if (result.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
+		console.warn('[LLM Service] Warning: Answer was truncated due to token limit (MAX_TOKENS)');
+	}
+
 	const text = result.text || '';
 
-	return parseAnswer(text, chunks);
+	return parseAnswer(text, chunks, query);
 }
 
 // detect contradictions between two documents
@@ -147,41 +168,161 @@ export async function assessConfidence(query, answer, chunks) {
 
 // --- parsing helpers ---
 
-function parseAnswer(text, chunks) {
+function trimSnippet(content, maxLen = 200, query = '') {
+	const cleaned = content.replace(/^p\.\s*\d+\s*\n+/i, '').trim();
+	if (cleaned.length <= maxLen) return cleaned;
+
+	// Split into sentences.
+	const sentences = cleaned.split(/(?<=[.!?])\s+/);
+
+	if (sentences.length <= 1 || !query) {
+		return fallbackTruncate(cleaned, maxLen);
+	}
+
+	const STOPWORDS = new Set([
+		'the', 'a', 'an', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+		'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'about', 'against', 'between', 'into',
+		'through', 'during', 'before', 'after', 'above', 'below', 'from', 'up', 'down', 'in', 'out',
+		'off', 'over', 'under', 'again', 'further', 'then', 'once', 'here', 'there', 'when', 'where',
+		'why', 'how', 'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such',
+		'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'can',
+		'will', 'just', 'should', 'now', 'what', 'which', 'who', 'whom', 'this', 'that', 'these', 'those'
+	]);
+
+	const queryWords = query.toLowerCase()
+		.replace(/[^a-z0-9\s]/g, '')
+		.split(/\s+/)
+		.filter(w => w.length > 2 && !STOPWORDS.has(w));
+
+	if (queryWords.length === 0) {
+		return fallbackTruncate(cleaned, maxLen);
+	}
+
+	let bestIndex = 0;
+	let maxScore = -1;
+
+	sentences.forEach((sentence, idx) => {
+		const sentenceWords = new Set(
+			sentence.toLowerCase()
+				.replace(/[^a-z0-9\s]/g, '')
+				.split(/\s+/)
+		);
+
+		let score = 0;
+		queryWords.forEach(qw => {
+			if (sentenceWords.has(qw)) {
+				score += 1;
+			}
+		});
+
+		if (score > maxScore) {
+			maxScore = score;
+			bestIndex = idx;
+		}
+	});
+
+	if (maxScore <= 0) {
+		bestIndex = 0;
+	}
+
+	let snippet = '';
+	let currentIdx = bestIndex;
+
+	while (currentIdx < sentences.length) {
+		const nextSec = sentences[currentIdx];
+		if (snippet.length + nextSec.length + (snippet ? 1 : 0) <= maxLen) {
+			snippet += (snippet ? ' ' : '') + nextSec;
+			currentIdx++;
+		} else {
+			break;
+		}
+	}
+
+	if (!snippet) {
+		const targetSentence = sentences[bestIndex];
+		snippet = targetSentence.slice(0, maxLen);
+		const lastEnd = Math.max(
+			snippet.lastIndexOf('.'),
+			snippet.lastIndexOf('!'),
+			snippet.lastIndexOf('?')
+		);
+		snippet = lastEnd > 40 ? snippet.slice(0, lastEnd + 1) : snippet + '...';
+	} else if (currentIdx < sentences.length) {
+		snippet += '...';
+	}
+
+	return snippet;
+}
+
+function fallbackTruncate(text, maxLen) {
+	if (text.length <= maxLen) return text;
+	const truncated = text.slice(0, maxLen);
+	const lastEnd = Math.max(
+		truncated.lastIndexOf('.'),
+		truncated.lastIndexOf('!'),
+		truncated.lastIndexOf('?')
+	);
+	return lastEnd > 40 ? truncated.slice(0, lastEnd + 1) : truncated + '...';
+}
+
+function sanitizeInlineCitations(answerText, maxValid) {
+	let occurred = false;
+	const sanitized = answerText.replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, (match, nums) => {
+		const parsedNums = nums.split(',').map(n => parseInt(n.trim(), 10));
+		const valid = parsedNums.filter(n => n >= 1 && n <= maxValid);
+		if (valid.length < parsedNums.length) {
+			occurred = true;
+		}
+		if (valid.length === 0) return '';
+		return `[${valid.join(', ')}]`;
+	});
+	if (occurred) {
+		console.warn(`[LLM Service] Warning: Model generated out-of-range citation numbers (max valid: ${maxValid}) — sanitized.`);
+	}
+	return sanitized;
+}
+
+function parseAnswer(text, chunks, query = '') {
 	const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
 	try {
 		const parsed = JSON.parse(cleaned);
 		
-		// Map indices (e.g. 1, 2) to retrieved chunks
-		const citations = [];
-		if (Array.isArray(parsed.citations)) {
-			parsed.citations.forEach(idx => {
-				const chunkIdx = parseInt(idx, 10) - 1;
-				if (chunkIdx >= 0 && chunkIdx < chunks.length) {
-					const chunk = chunks[chunkIdx];
-					citations.push({
-						source_file: chunk.filename,
-						section_ref: chunk.section_ref,
-						snippet: chunk.content,
-						similarity_score: chunk.similarity_score
-					});
-				}
-			});
+		// Map all context chunks in the exact order they were passed to the LLM,
+		// so that [N] in the answer text always matches citations[N-1].
+		const citations = chunks.map((chunk) => ({
+			source_file: chunk.filename,
+			section_ref: chunk.section_ref,
+			snippet: trimSnippet(chunk.content.replace(/^p\.\s*\d+\s*\n+/i, ''), 200, query),
+			similarity_score: chunk.similarity_score
+		}));
+
+		let rawConfidence = parsed.confidence;
+		if (typeof rawConfidence === 'number') {
+			if (rawConfidence > 5.0 && rawConfidence <= 100.0) {
+				rawConfidence = rawConfidence / 100.0;
+			} else if (rawConfidence > 1.0 && rawConfidence <= 5.0) {
+				rawConfidence = rawConfidence / 5.0;
+			}
+			rawConfidence = Math.min(1.0, Math.max(0.0, rawConfidence));
+		} else {
+			rawConfidence = null;
 		}
 
+		const finalAnswer = sanitizeInlineCitations(parsed.answer || text, chunks.length);
+
 		return {
-			answer: parsed.answer || text,
+			answer: finalAnswer,
 			citations: citations,
 			covered: parsed.covered !== undefined ? parsed.covered : true,
-			confidence: parsed.confidence !== undefined ? parsed.confidence : null,
+			confidence: rawConfidence,
 		};
 	} catch {
 		return {
-			answer: text,
+			answer: sanitizeInlineCitations(text, chunks.length),
 			citations: chunks.map((c) => ({
 				source_file: c.filename,
 				section_ref: c.section_ref,
-				snippet: c.content.substring(0, 150),
+				snippet: trimSnippet(c.content.replace(/^p\.\s*\d+\s*\n+/i, ''), 200, query),
 				similarity_score: c.similarity_score,
 			})),
 			covered: true,
