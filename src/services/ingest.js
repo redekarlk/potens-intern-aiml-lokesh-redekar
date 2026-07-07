@@ -1,8 +1,12 @@
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
 import pool from '../config/db.js';
 import { chunkDocument } from './chunker.js';
 import { embedBatch } from './embeddings.js';
+
+const require = createRequire(import.meta.url);
+const pdf = require('pdf-parse');
 
 export async function ingestDocument(filepath) {
 	const filename = path.basename(filepath);
@@ -14,7 +18,16 @@ export async function ingestDocument(filepath) {
 		return { filename, chunks: 0, skipped: true };
 	}
 
-	const text = fs.readFileSync(filepath, 'utf-8');
+	let text = '';
+	if (filename.toLowerCase().endsWith('.pdf')) {
+		const buffer = fs.readFileSync(filepath);
+		const parser = new pdf.PDFParse({ data: buffer });
+		const result = await parser.getText();
+		text = result.text;
+	} else {
+		text = fs.readFileSync(filepath, 'utf-8');
+	}
+
 	console.log(`Processing ${filename} (${text.length} chars)`);
 
 	// chunk the document
@@ -26,15 +39,20 @@ export async function ingestDocument(filepath) {
 	const embeddings = await embedBatch(texts);
 	console.log(`  ${embeddings.length} embeddings generated`);
 
+	// determine domain based on filename
+	const isAiDoc = filename.toLowerCase().includes('ai') || filename.toLowerCase().includes('oecd');
+	const domain = isAiDoc ? 'ai_governance' : 'cloud_databases';
+
 	// store in db using a transaction
 	const client = await pool.connect();
 	try {
 		await client.query('BEGIN');
 
+		const title = filename.replace(/\.(txt|pdf)$/i, '').replace(/_/g, ' ').replace(/[-\s]+/g, ' ');
 		const docResult = await client.query(
 			`INSERT INTO documents (filename, title, domain, chunk_count)
 			 VALUES ($1, $2, $3, $4) RETURNING id`,
-			[filename, filename.replace('.txt', '').replace(/_/g, ' '), 'cloud_databases', chunks.length]
+			[filename, title, domain, chunks.length]
 		);
 		const docId = docResult.rows[0].id;
 
@@ -60,7 +78,9 @@ export async function ingestDocument(filepath) {
 }
 
 export async function ingestDirectory(dirPath) {
-	const files = fs.readdirSync(dirPath).filter((f) => f.endsWith('.txt')).sort();
+	const files = fs.readdirSync(dirPath)
+		.filter((f) => f.endsWith('.txt') || f.endsWith('.pdf'))
+		.sort();
 	console.log(`Found ${files.length} documents`);
 
 	const results = [];
