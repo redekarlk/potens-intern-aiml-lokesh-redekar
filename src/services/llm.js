@@ -30,11 +30,12 @@ Respond in JSON:
 {
   "answer": "your answer with citations",
   "citations": [{"source_file": "filename", "section_ref": "section", "snippet": "quote from chunk"}],
-  "covered": true/false
+  "covered": true/false,
+  "confidence": 0.XX
 }`;
 
 	const model = genAI.getGenerativeModel({
-		model: 'gemini-2.0-flash',
+		model: 'gemini-flash-latest',
 		systemInstruction: systemPrompt,
 		generationConfig: config,
 	});
@@ -74,7 +75,7 @@ Respond in JSON:
 }`;
 
 	const model = genAI.getGenerativeModel({
-		model: 'gemini-2.0-flash',
+		model: 'gemini-flash-latest',
 		systemInstruction: systemPrompt,
 		generationConfig: { ...config, maxOutputTokens: 4096 },
 	});
@@ -92,7 +93,7 @@ export async function assessConfidence(query, answer, chunks) {
 		.join('\n');
 
 	const model = genAI.getGenerativeModel({
-		model: 'gemini-2.0-flash',
+		model: 'gemini-flash-latest',
 		generationConfig: { temperature: 0.1, maxOutputTokens: 100 },
 	});
 
@@ -121,6 +122,7 @@ function parseAnswer(text, chunks) {
 			answer: parsed.answer || text,
 			citations: parsed.citations || [],
 			covered: parsed.covered !== undefined ? parsed.covered : true,
+			confidence: parsed.confidence !== undefined ? parsed.confidence : null,
 		};
 	} catch {
 		return {
