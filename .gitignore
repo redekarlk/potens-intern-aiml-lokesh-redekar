@@ -3,6 +3,7 @@
 .env.development
 .env.production
 .env.test
+vertex-service-account.json
 node_modules/
 coverage/
 dist/
