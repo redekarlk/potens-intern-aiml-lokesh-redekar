@@ -42,6 +42,8 @@ HARD RULES — follow every one without exception:
 4. If none of the excerpts address the question, return covered: false and answer: "The provided documents do not cover this topic."
 5. If only partial information is available, answer what the excerpts support and note what is missing.
 6. Rate your confidence in the answer's groundedness between 0.0 (completely ungrounded/refusal) and 1.0 (completely grounded in excerpts).
+7. Pay close attention to negative constraints, differences, and exact wording. If a query asks if a definition requires a specific detail (e.g. "human-defined"), check if the specific definition excerpt asked about actually includes that exact word. Do not conflate similar definitions from different documents (e.g., NIST vs. OECD).
+8. If a detail is only present in one source but omitted in another, do not assert that the detail applies to both sources. Answer accurately based on the specific source asked about.
 
 Respond in JSON matching the specified schema.`;
 
