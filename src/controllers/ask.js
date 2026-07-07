@@ -34,27 +34,29 @@ export async function askQuestion(req, res) {
 		const finalAnswer = await translateAnswer(result.answer, detectedLang);
 
 		const maxSimilarity = Math.max(...chunks.map((c) => c.similarity_score));
-		
+
 		// Use model-generated confidence if present, otherwise calculate it
 		let llmConfidence = result.confidence;
 		if (llmConfidence === null || llmConfidence === undefined) {
 			llmConfidence = await assessConfidence(englishQuery, result.answer, chunks);
 		}
-		
+
 		const confidence = parseFloat((0.6 * maxSimilarity + 0.4 * llmConfidence).toFixed(2));
 
 		res.json({
 			answer: finalAnswer,
 			language: detectedLang,
-			citations: result.citations.map((c) => ({
-				...c,
-				similarity_score: chunks.find((ch) => ch.filename === c.source_file)?.similarity_score || null,
-			})),
+			citations: result.citations,
 			confidence,
 			covered: result.covered,
 		});
 	} catch (err) {
 		console.error('Error in ask controller:', err.message);
+		if (err.message.includes('429') || err.status === 429) {
+			return res.status(429).json({
+				error: 'The AI provider rate limit was exceeded. Please try again later or check your Vertex/Gemini quota.',
+			});
+		}
 		res.status(500).json({ error: 'Failed to process question' });
 	}
 }

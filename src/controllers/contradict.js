@@ -23,6 +23,11 @@ export async function checkContradictions(req, res) {
 		res.json(result);
 	} catch (err) {
 		console.error('Error in contradict controller:', err.message);
+		if (err.message.includes('429') || err.status === 429) {
+			return res.status(429).json({
+				error: 'The AI provider rate limit was exceeded. Please try again later or check your Vertex/Gemini quota.',
+			});
+		}
 		res.status(500).json({ error: 'Failed to analyze contradictions' });
 	}
 }
