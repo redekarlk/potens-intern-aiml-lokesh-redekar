@@ -1,43 +1,63 @@
-// embeddings.js - wraps Gemini text-embedding-004
+// embeddings.js - wraps Vertex or Gemini embeddings through the unified Gen AI SDK
 
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import dotenv from 'dotenv';
+import { getAiClient } from './aiClient.js';
 
-dotenv.config();
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
-
-const BATCH_SIZE = 10;
-const BATCH_DELAY = 500; // ms between batches for rate limiting
+const BATCH_SIZE = 5;
+const BATCH_DELAY = 1000; // ms between batches
 
 function sleep(ms) {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// retry helper for handling API rate limits (429)
+async function callWithRetry(fn, retries = 10, delay = 5000) {
+	try {
+		return await fn();
+	} catch (err) {
+		const message = err?.message || '';
+		if (message.includes('429') && retries > 0) {
+			console.warn(`Rate limited (429). Retrying in ${delay}ms... (${retries} retries left)`);
+			await sleep(delay);
+			return callWithRetry(fn, retries - 1, delay * 2);
+		}
+		throw err;
+	}
+}
+
 // embed a single query string
 export async function embedText(text) {
-	const result = await model.embedContent(text);
-	return result.embedding.values;
+	const result = await callWithRetry(() =>
+		getAiClient().models.embedContent({
+			model: process.env.AI_EMBEDDING_MODEL || 'text-embedding-004',
+			contents: text,
+		})
+	);
+	return result.embeddings?.[0]?.values || [];
 }
 
 // embed multiple texts in batches (used during ingestion)
 export async function embedBatch(texts) {
 	const embeddings = [];
+	const BATCH_SIZE = 30; // Safe batch size for text-embedding-004
 
 	for (let i = 0; i < texts.length; i += BATCH_SIZE) {
 		const batch = texts.slice(i, i + BATCH_SIZE);
 
-		const results = await Promise.all(
-			batch.map((text) => model.embedContent(text))
+		const result = await callWithRetry(() =>
+			getAiClient().models.embedContent({
+				model: process.env.AI_EMBEDDING_MODEL || 'text-embedding-004',
+				contents: batch,
+			})
 		);
 
-		for (const r of results) {
-			embeddings.push(r.embedding.values);
+		if (result.embeddings) {
+			for (const emb of result.embeddings) {
+				embeddings.push(emb.values || []);
+			}
 		}
 
 		if (i + BATCH_SIZE < texts.length) {
-			await sleep(BATCH_DELAY);
+			await sleep(2000); // 2s pause between batches
 		}
 	}
 
