@@ -34,7 +34,13 @@ export async function askQuestion(req, res) {
 		const finalAnswer = await translateAnswer(result.answer, detectedLang);
 
 		const maxSimilarity = Math.max(...chunks.map((c) => c.similarity_score));
-		const llmConfidence = await assessConfidence(englishQuery, result.answer, chunks);
+		
+		// Use model-generated confidence if present, otherwise calculate it
+		let llmConfidence = result.confidence;
+		if (llmConfidence === null || llmConfidence === undefined) {
+			llmConfidence = await assessConfidence(englishQuery, result.answer, chunks);
+		}
+		
 		const confidence = parseFloat((0.6 * maxSimilarity + 0.4 * llmConfidence).toFixed(2));
 
 		res.json({
