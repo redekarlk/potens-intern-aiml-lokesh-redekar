@@ -88,16 +88,44 @@ export async function retrieveChunks(queryEmbedding, options = {}) {
 			};
 		});
 
-	const aboveThreshold = scored
+	const sorted = scored
 		.filter((s) => s.similarity_score >= SIMILARITY_THRESHOLD)
-		.sort((a, b) => b.hybrid_score - a.hybrid_score)
-		.slice(0, topK);
+		.sort((a, b) => b.hybrid_score - a.hybrid_score);
 
-	// Apply per-chunk relevance filter — drop weak chunks before they reach the LLM.
-	// Fall back to all above-threshold chunks if none clear the higher bar.
-	const relevant = aboveThreshold.filter((s) => s.similarity_score >= RELEVANCE_THRESHOLD);
-	console.log(`[Retrieval] top-${topK} candidates: ${aboveThreshold.length} above similarity gate, ${relevant.length} above relevance threshold (${RELEVANCE_THRESHOLD})`);
-	return relevant.length > 0 ? relevant : aboveThreshold;
+	// Try to find chunks clearing the higher RELEVANCE_THRESHOLD first
+	let sourcePool = sorted.filter((s) => s.similarity_score >= RELEVANCE_THRESHOLD);
+	const usingRelevance = sourcePool.length > 0;
+	if (!usingRelevance) {
+		sourcePool = sorted; // Fallback to all above similarity threshold
+	}
+
+	// Implement Document Diversification to avoid single-document monopolization in top-K.
+	const maxPerDoc = 2; // Capping to 2 chunks per document to promote diversity in multi-hop queries
+	const selected = [];
+	const docCounts = {};
+
+	for (const chunk of sourcePool) {
+		if (selected.length >= topK) break;
+		const docId = chunk.document_id;
+		docCounts[docId] = docCounts[docId] || 0;
+		if (docCounts[docId] < maxPerDoc) {
+			selected.push(chunk);
+			docCounts[docId]++;
+		}
+	}
+
+	// Fill remaining slots from the source pool if selected count is less than topK
+	if (selected.length < topK) {
+		for (const chunk of sourcePool) {
+			if (selected.length >= topK) break;
+			if (!selected.some(s => s.chunk_id === chunk.chunk_id)) {
+				selected.push(chunk);
+			}
+		}
+	}
+
+	console.log(`[Retrieval] top-${topK} candidates: ${selected.length} returned (usingRelevance: ${usingRelevance})`);
+	return selected;
 }
 
 // get all chunks for specific documents (used by /contradict)
