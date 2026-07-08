@@ -66,7 +66,7 @@ export async function retrieveChunks(queryEmbedding, options = {}) {
 
 			const simScore = cosineSimilarity(queryEmbedding, emb);
 			const textRankVal = parseFloat(row.text_rank || '0');
-			
+
 			// Normalize textRankVal (ts_rank_cd is usually between 0.0 and 1.0 but clamp to 1.0 to be safe)
 			const normalizedTextRank = Math.min(1.0, textRankVal);
 

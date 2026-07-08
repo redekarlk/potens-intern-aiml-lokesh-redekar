@@ -70,7 +70,7 @@ Respond in JSON matching the specified schema.`;
 							items: { type: 'integer' }
 						},
 						covered: { type: 'boolean' },
-						confidence: { 
+						confidence: {
 							type: 'number',
 							description: 'Groundedness confidence score between 0.0 (not grounded) and 1.0 (perfectly grounded)'
 						}
@@ -288,7 +288,7 @@ function parseAnswer(text, chunks, query = '') {
 	const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
 	try {
 		const parsed = JSON.parse(cleaned);
-		
+
 		// Map all context chunks in the exact order they were passed to the LLM,
 		// so that [N] in the answer text always matches citations[N-1].
 		const citations = chunks.map((chunk) => ({
@@ -359,7 +359,7 @@ function parseContradiction(text) {
 		};
 	} catch {
 		console.warn('[LLM Service] Contradiction JSON parsing failed (possibly truncated), attempting regex extraction...');
-		
+
 		let hasConflict = false;
 		const conflictMatch = cleaned.match(/"has_conflict"\s*:\s*(true|false)/i);
 		if (conflictMatch) {

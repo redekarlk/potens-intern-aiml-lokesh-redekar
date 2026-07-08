@@ -23,8 +23,8 @@ export async function askQuestion(req, res) {
 		const tEmbedTime = Date.now() - tEmbedStart;
 
 		const tRetrieveStart = Date.now();
-		// Pass englishQuery for Hybrid Search, doc_ids, and default topK to 10 for richer synthesis
-		let chunks = await retrieveChunks(queryEmbedding, { 
+		// Pass englishQuery for Hybrid Search, doc_ids, and default topK to 5
+		let chunks = await retrieveChunks(queryEmbedding, {
 			textQuery: englishQuery,
 			docIds: Array.isArray(doc_ids) ? doc_ids.map(Number) : null,
 			topK: 5
@@ -45,7 +45,7 @@ export async function askQuestion(req, res) {
 			});
 		}
 
-		// chunks from retrieval are already filtered by RELEVANCE_THRESHOLD \u2014
+		// chunks from retrieval are already filtered by RELEVANCE_THRESHOLD —
 		// log what we have and proceed directly to generation.
 		const maxSimilarity = Math.max(...chunks.map((c) => c.similarity_score));
 		console.log(`[Ask Question] ${chunks.length} chunk(s) passed relevance filter (max similarity: ${maxSimilarity.toFixed(4)})`);

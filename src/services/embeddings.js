@@ -28,8 +28,11 @@ async function callWithRetry(fn, retries = 10, delay = 5000) {
 export async function embedText(text) {
 	const result = await callWithRetry(() =>
 		getAiClient().models.embedContent({
-			model: process.env.AI_EMBEDDING_MODEL || 'text-embedding-004',
+			model: process.env.AI_EMBEDDING_MODEL || 'gemini-embedding-001',
 			contents: text,
+			config: {
+				outputDimensionality: 768,
+			},
 		})
 	);
 	return result.embeddings?.[0]?.values || [];
@@ -45,8 +48,11 @@ export async function embedBatch(texts) {
 
 		const result = await callWithRetry(() =>
 			getAiClient().models.embedContent({
-				model: process.env.AI_EMBEDDING_MODEL || 'text-embedding-004',
+				model: process.env.AI_EMBEDDING_MODEL || 'gemini-embedding-001',
 				contents: batch,
+				config: {
+					outputDimensionality: 768,
+				},
 			})
 		);
 
