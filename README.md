@@ -15,7 +15,7 @@ Before setting up the project, make sure you have the following installed locall
 ### 1. Clone the Repository
 Clone the repository to your local machine:
 ```bash
-git clone <your-repository-url>
+git clone https://github.com/redekarlk/potens-intern-aiml-lokesh-redekar.git
 cd backend
 ```
 
@@ -47,7 +47,7 @@ GEMINI_API_KEY=your_gemini_api_key_here
 SIMILARITY_THRESHOLD=0.55
 TOP_K=5
 AI_TEXT_MODEL=gemini-2.5-flash
-AI_EMBEDDING_MODEL=text-embedding-004
+AI_EMBEDDING_MODEL=gemini-embedding-001
 ENABLE_RERANKER=true
 ```
 
@@ -105,25 +105,26 @@ Open **`http://localhost:8501`** in your browser. The dashboard has three tabs:
 
 ## Core Document Processing Pipeline
 
-The backend implements an automatic ingestion pipeline:
+The backend implements an automatic ingestion pipeline divided into three main stages:
 
-### 1. Ingestion (`src/services/ingest.js`)
-*   Scans the `data/source_docs/` folder for `.txt` and `.pdf` documents.
-*   Performs hash-checks (`idempotent check`) on filenames and sizes to skip indexing documents that are already fully ingested.
-*   Parses binary PDF streams using `pdf-parse` to extract text coordinates and content page by page.
+### 1. Ingestion ([ingest.js](file:///d:/potens_assesment/backend/src/services/ingest.js))
+* **Directory Scanning**: Scans the `data/source_docs/` folder for `.txt` and `.pdf` documents using file-system read operations.
+* **Idempotency Checks**: Checks filenames and sizes against the `documents` table database records before indexing. If a file of the same name exists, it is skipped to prevent duplicate records and save API/computational resources.
+* **Binary PDF Parsing**: Parses binary PDF streams using `pdf-parse` to extract page indexes and raw contents. It uses regex matches on pagination boundaries (e.g. `-- N of M --`) to record page character offset markers.
+* **Transaction-Bound Storage**: Inserts the document meta-record and all related chunks inside a single SQL transaction. If chunking, embedding, or database operations fail at any point, the transaction automatically rolls back.
 
-### 2. Chunking Strategy (`src/services/chunker.js`)
+### 2. Chunking Strategy ([chunker.js](file:///d:/potens_assesment/backend/src/services/chunker.js))
 To preserve context coherence and avoid truncating concepts mid-sentence, the system uses a **hierarchical, sentence-aware chunking algorithm**:
-1.  **Section Identification**: Identifies section headings using Markdown indicators (`#`), lines underlined by `===`/`---`, numbered headings (`5.3 Measure`), and document-specific headers (`GOVERN 1`).
-2.  **Sentence Boundaries**: Splits sections into clean sentence arrays using punctuation regex matching `.`, `!`, and `?` while ignoring decimal numbers.
-3.  **Token-Aware Packing**: Sentences are grouped into chunks targeting **~500 tokens** (approximated via character-to-token ratio `length / 4`).
-4.  **Boundary Overlap**: Maintains a **15% overlap (~75 tokens)** between successive chunks in the same section to preserve boundary context.
-5.  **Metadata Binding**: Chunks are tagged with the parent section heading (or fallback page index `p. N` calculated from character offset page ranges), source filename, character index offsets, and token count.
+1. **Section Identification**: Breaks the cleaned text into logical sections based on structural headings. It scans for Markdown headings (`#`), underline indicators (`===`/`---`), numbered section indicators (`5.3 Measure`), and document-specific breakouts (`GOVERN 1`, `Table 1:`, `Figure 2:`).
+2. **Sentence Boundaries**: Splits section text into clean sentence arrays using punctuation regex matching (`.`, `!`, `?`). A negative lookahead (`(?![\d])`) is implemented to ignore decimal indices so they are not treated as punctuation boundaries.
+3. **Token-Aware Packing**: Sentences are grouped sequentially into chunks targeting **~500 tokens** (estimated via character-to-token ratio `length / 4`).
+4. **Boundary Overlap**: Maintains a **15% overlap (~75 tokens)** between successive chunks in the same section to preserve context across boundaries.
+5. **Metadata Binding**: Chunks are tagged with the parent section heading (or fallback page index `p. N` calculated from character offset page ranges), source filename, character index offsets, and token count.
 
-### 3. Embed & Store (`src/services/embeddings.js`)
-*   Generates embeddings using Google's `text-embedding-004` model.
-*   Implements an **exponential backoff retry queue** that handles `429 Rate Limit` errors by batching requests (batch size = 30) with safety delays.
-*   Inserts chunks into the PostgreSQL `chunks` table as a standard `DOUBLE PRECISION[]` array, decoupling the database structure from vector length.
+### 3. Embed & Store ([embeddings.js](file:///d:/potens_assesment/backend/src/services/embeddings.js))
+* **Vector Embeddings**: Calls `getAiClient().models.embedContent` using standard `gemini-embedding-001` configured with `outputDimensionality: 768` (when using Gemini API Key) or `text-embedding-004` (when using GCP Vertex AI).
+* **Resilient API Queue**: Implements an **exponential backoff retry queue** that intercepts transient errors (`429 Rate Limit`, `503 Service Unavailable`, `500 Internal Error`). It batches requests (batch size = 30) with safety delays and doubles the retry delay on failure (starting at 5s, doubling up to 10 retries).
+* **Decoupled Database Storage**: Inserts float vectors into the PostgreSQL `chunks` table as a standard `DOUBLE PRECISION[]` float array. This decouples the database schema from a fixed vector type/length, enabling future model migrations without database alters.
 
 ---
 
@@ -238,17 +239,11 @@ Manually trigger document ingestion scanner.
 
 ---
 
-## AI Use Log
+## AI Use Log (150k -200k tokens)
 
-*   **Claude Sonnet**:
-    *   **Approximate usage**: ~35 messages / ~85k tokens.
-    *   **Tasks**:
-        *   Implemented the LLM reranker service (`reranker.js`) and integrated it into the search pipeline (`retrieval.js`).
-        *   Assisted with Express server routing, controller refactoring, and rate-limit retry mechanisms.
-        *   **Frontend Development**: The Streamlit user interface dashboard (`frontend/streamlit_app.py`) was fully created by the candidate using Claude Sonnet.
-*   **ChatGPT**:
-    *   **Approximate usage**: ~25 messages / ~65k tokens.
-    *   **Tasks**:
-        *   Designed the database migrations schema.
-        *   Assisted with local cosine similarity calculation logic.
-        *   Developed the multi-top-k evaluation runner script (`run_eval.js`) and wrote API endpoint documentation.
+Leveraging AI allowed us to accelerate the development lifecycle and implement a highly resilient, enterprise-grade RAG pipeline:
+
+* **Claude**: Assisted in implementing the sentence-aware hierarchical chunking logic and custom LLM reranker. The Streamlit user interface dashboard (`frontend/streamlit_app.py`) was fully created using Claude.
+* **ChatGPT**:
+  * Supported SQL schema migration designs, local vector distance calculations, and API documentation structures.
+  * Aided in model version migration logic, handling rate limit recovery setups, and proxy configuration strategies.
